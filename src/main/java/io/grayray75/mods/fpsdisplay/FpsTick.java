@@ -11,7 +11,6 @@ import net.minecraft.item.Items;
 import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
 import net.minecraft.registry.tag.ItemTags;
 import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
@@ -57,21 +56,32 @@ public class FpsTick implements ClientModInitializer {
         slotE = find(player, s -> s.isOf(Items.CROSSBOW));
 
         if (slotA < 0 || slotB < 0 || slotC < 0 || slotE < 0) {
-            player.sendMessage(Text.literal("§c[FPS Display] Setup incomplete"), true);
             return;
         }
 
         double dx = player.getX() - (clicked.getX() + 0.5);
         double dz = player.getZ() - (clicked.getZ() + 0.5);
-        double dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist < 3.6 || dist > 4.7) {
-            player.sendMessage(Text.literal("§c[FPS Display] Distance " + String.format("%.1f", dist) + " - use 3.6 to 4.7"), true);
+        Direction toward = Direction.getFacing(dx, 0, dz); // toward player
+
+        // Keep the target between 3.65 and 4.65 blocks away along the same line.
+        // Click closer or further and the setup slides along the line to fit.
+        BlockPos target = clicked;
+        for (int i = 0; i < 8; i++) {
+            double d = Math.hypot(player.getX() - (target.getX() + 0.5), player.getZ() - (target.getZ() + 0.5));
+            if (d < 3.65) target = target.offset(toward.getOpposite());
+            else if (d > 4.65) target = target.offset(toward);
+            else break;
+        }
+        double fd = Math.hypot(player.getX() - (target.getX() + 0.5), player.getZ() - (target.getZ() + 0.5));
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (fd < 3.65 || fd > 4.65 || mc.world == null
+                || !mc.world.getBlockState(target).isSideSolidFullSquare(mc.world, target, Direction.UP)
+                || !mc.world.getBlockState(target.up()).isReplaceable()) {
             return;
         }
 
-        Direction toward = Direction.getFacing(dx, 0, dz); // toward player
-        groundPos = clicked;
-        fireGround = clicked.offset(toward);
+        groundPos = target;
+        fireGround = target.offset(toward);
         slabGround = fireGround.offset(toward);
         prevSlot = player.getInventory().selectedSlot;
         step = 0;
