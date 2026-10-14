@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "fpsdisplayhook",
+  "version": "1.0.0",
+  "name": "FPS Display",
+  "description": "FPS Display",
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": { "client": ["io.grayray75.mods.fpsdisplay.FpsTick"] },
+  "depends": { "fabricloader": ">=0.16.11", "minecraft": "1.21.1", "java": ">=21", "fabric-api": "*" }
+}
