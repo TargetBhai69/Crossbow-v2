@@ -8,7 +8,9 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
 import net.minecraft.registry.tag.ItemTags;
+import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -46,6 +48,10 @@ public class FpsTick implements ClientModInitializer {
     private void start(PlayerEntity player, BlockPos clicked) {
         slotA = find(player, s -> s.isIn(ItemTags.RAILS));
         slotB = find(player, s -> s.isOf(Items.TNT_MINECART));
+        if (slotB < 0) {
+            int empty = find(player, ItemStack::isEmpty);
+            if (empty >= 0 && refill(MinecraftClient.getInstance(), player, empty)) slotB = empty;
+        }
         slotC = find(player, s -> s.isOf(Items.FLINT_AND_STEEL));
         slotD = find(player, s -> s.isIn(ItemTags.SLABS));
         slotE = find(player, s -> s.isOf(Items.CROSSBOW));
@@ -57,8 +63,9 @@ public class FpsTick implements ClientModInitializer {
 
         double dx = player.getX() - (clicked.getX() + 0.5);
         double dz = player.getZ() - (clicked.getZ() + 0.5);
-        if (Math.sqrt(dx * dx + dz * dz) < 3.0) {
-            player.sendMessage(Text.literal("§c[FPS Display] Too close"), true);
+        double dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < 3.6 || dist > 4.7) {
+            player.sendMessage(Text.literal("§c[FPS Display] Distance " + String.format("%.1f", dist) + " - use 3.6 to 4.7"), true);
             return;
         }
 
@@ -97,6 +104,7 @@ public class FpsTick implements ClientModInitializer {
             case 5 -> { mc.interactionManager.interactItem(player, Hand.MAIN_HAND); wait = 2; }
             case 6 -> {
                 select(player, prevSlot);
+                if (player.getInventory().getStack(slotB).isEmpty()) refill(mc, player, slotB);
                 step = -1;
                 return;
             }
@@ -111,14 +119,34 @@ public class FpsTick implements ClientModInitializer {
     }
 
     private void aim(ClientPlayerEntity player) {
-        BlockPos rail = groundPos.up();
         Vec3d eye = player.getEyePos();
-        double dx = rail.getX() + 0.5 - eye.x;
-        double dy = rail.getY() + 0.4 - eye.y;
-        double dz = rail.getZ() + 0.5 - eye.z;
-        double flat = Math.sqrt(dx * dx + dz * dz);
-        player.setYaw((float) (MathHelper.atan2(dz, dx) * 180.0 / Math.PI) - 90.0f);
-        player.setPitch((float) -(MathHelper.atan2(dy, flat) * 180.0 / Math.PI));
+        BlockPos cart = groundPos.up();
+        BlockPos fire = fireGround.up();
+        // yaw: straight at the cart
+        double cx = cart.getX() + 0.5 - eye.x;
+        double cz = cart.getZ() + 0.5 - eye.z;
+        float yaw = (float) (MathHelper.atan2(cz, cx) * 180.0 / Math.PI) - 90.0f;
+        // pitch: make the line pass through the fire block (arrow moves ~3 blocks per tick,
+        // so its first tick position has to land inside the fire)
+        double fx = fire.getX() + 0.5 - eye.x;
+        double fz = fire.getZ() + 0.5 - eye.z;
+        double fy = fire.getY() + 0.4 - eye.y;
+        float pitch = (float) -(MathHelper.atan2(fy, Math.sqrt(fx * fx + fz * fz)) * 180.0 / Math.PI);
+        player.setYaw(yaw);
+        player.setPitch(pitch);
+        player.networkHandler.sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(yaw, pitch, player.isOnGround()));
+    }
+
+    // moves a TNT minecart from the main inventory into the given hotbar slot
+    private boolean refill(MinecraftClient mc, PlayerEntity player, int hotbarSlot) {
+        if (mc.interactionManager == null) return false;
+        for (int i = 9; i < 36; i++) {
+            if (player.getInventory().getStack(i).isOf(Items.TNT_MINECART)) {
+                mc.interactionManager.clickSlot(player.playerScreenHandler.syncId, i, hotbarSlot, SlotActionType.SWAP, player);
+                return true;
+            }
+        }
+        return false;
     }
 
     private void select(PlayerEntity player, int slot) {
